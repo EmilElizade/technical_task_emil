@@ -6,17 +6,20 @@ from django.core.exceptions import ValidationError
 import re
 
 
-# ------------------- Validators -------------------
+# ------------------- Validator-lar -------------------
+# Yalnız Azərbaycan əlifbasına uyğun hərflərə icazə verir
 azerbaijani_letters_validator = RegexValidator(
     regex=r'^[A-Za-zƏəÖöĞğÜüÇçŞşİı]+$',
     message='Yalnız Azərbaycan əlifbasındakı hərflərə icazə verilir.'
 )
 
+# Mobil nömrə: 9 rəqəm (məs: 501234567)
 mobile_number_validator = RegexValidator(
     regex=r'^\d{9}$',
     message='Mobil nömrə düzgün daxil edilməyib. 50 123 45 67 formatında daxil edin.'
 )
 
+# Şifrə gücü üçün yoxlama (8–15 simvol, böyük hərf, rəqəm və simvol)
 def validate_password_strength(password):
     if not (8 <= len(password) <= 15):
         raise ValidationError('Şifrə 8-15 simvol arasında olmalıdır.')
@@ -27,13 +30,14 @@ def validate_password_strength(password):
     if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
         raise ValidationError('Şifrədə ən azı bir simvol (!@#$... və s.) olmalıdır.')
 
-# ------------------- Custom Manager -------------------
+# ------------------- İstifadəçi Meneceri -------------------
+# Özəl istifadəçi yaratma və superuser yaratmaq üçün CustomUserManager
 class CustomUserManager(BaseUserManager):
     def create_user(self, mobile_number, password=None, **extra_fields):
         if not mobile_number:
             raise ValueError('Mobil nömrə daxil edilməlidir.')
         if password:
-            validate_password_strength(password)
+            validate_password_strength(password)  # Şifrə gücü yoxlanılır
         user = self.model(mobile_number=mobile_number, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
@@ -44,31 +48,31 @@ class CustomUserManager(BaseUserManager):
         extra_fields.setdefault('is_superuser', True)
         return self.create_user(mobile_number, password, **extra_fields)
 
-# ------------------- Page 2 Models -------------------
-
+# ------------------- Page 2 Üçün Əlavə Modellər -------------------
+# Peşə sahələri üçün model (məs: Həkim, Müəllim və s.)
 class ProfessionalField(models.Model):
     name = models.CharField(max_length=100, unique=True, verbose_name="Peşə Sahəsi")
 
     def __str__(self):
         return self.name
 
-
+# Peşə kvalifikasiyaları üçün model (məs: Bakalavr, Magistr və s.)
 class ProfessionalQualification(models.Model):
     title = models.CharField(max_length=100, unique=True, verbose_name="Peşə Kvalifikasiyası")
 
     def __str__(self):
         return self.title
 
-
+# Region/Bölgə məlumatları üçün model (məs: Bakı, Gəncə və s.)
 class Region(models.Model):
     name = models.CharField(max_length=100, unique=True, verbose_name="Fəaliyyət bölgəsi")
 
     def __str__(self):
         return self.name
 
-# ------------------- User Model -------------------
-
+# ------------------- Əsas İstifadəçi Modeli -------------------
 class CustomUser(AbstractBaseUser, PermissionsMixin):
+    # Şəxsi məlumatlar (Page 1)
     first_name = models.CharField(
         max_length=20,
         validators=[azerbaijani_letters_validator],
@@ -99,7 +103,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         verbose_name="Cins"
     )
 
-    # Page 2 Fields
+    # Peşə məlumatları (Page 2)
     professional_field = models.ForeignKey(
         ProfessionalField,
         on_delete=models.SET_NULL,
@@ -119,14 +123,16 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     areas_of_operation = models.ManyToManyField(
         Region,
         verbose_name="Fəaliyyət bölgələri",
-        blank=False
+        blank=False  # boş qoymaq olmaz, mütləq seçilməlidir
     )
 
+    # Texniki sahələr
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
 
     objects = CustomUserManager()
 
+    # Sistemdə login üçün istifadə ediləcək əsas sahə
     USERNAME_FIELD = 'mobile_number'
     REQUIRED_FIELDS = ['first_name', 'last_name', 'birth_date', 'gender',
                        'professional_field', 'professional_qualification', 'work_experience']
