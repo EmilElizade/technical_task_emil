@@ -16,7 +16,6 @@ mobile_number_validator = RegexValidator(
 )
 
 
-# Custom password complexity validator
 def validate_password_strength(password):
     if not (8 <= len(password) <= 15):
         raise ValueError('Şifrə 8-15 simvol arasında olmalıdır.')
