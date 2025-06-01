@@ -3,7 +3,11 @@ from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, Permis
 from django.core.validators import RegexValidator, MinValueValidator
 from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ValidationError
+from pydantic import BaseModel, Field, HttpUrl, validator
+from typing import Optional, List
 import re
+import os
+
 
 # ---------------------------------------
 #      Validators
@@ -188,3 +192,92 @@ class ProfessionalProfile(models.Model):
     class Meta:
         verbose_name = "Peşəkar Profil"
         verbose_name_plural = "Peşəkar Profillər"
+
+
+ALLOWED_IMAGE_EXTENSIONS = {'.jpg', '.png'}
+
+class UserAdditionalInfo(BaseModel):
+    # Təhsil - Radio button, yalnız bir seçim, məcburi
+    education: str = Field(..., description="Təhsil səviyyəsi seçimi (radio button)")
+    
+    # Təhsil ixtisası - yalnız AZE hərfləri, 50 simvol, conditional required
+    education_major: Optional[str] = Field(
+        None, max_length=50, description="Təhsil ixtisası, yalnız Azərbaycan hərfləri"
+    )
+    
+    # Dil bilikləri - checkbox (çox seçim), məcburi
+    languages: List[str] = Field(..., description="Dil bilikləri (checkbox)")
+    
+    # Profil şəkli - optional, jpg/png
+    profile_photo_filename: Optional[str] = Field(
+        None, description="Profil şəkli (jpg və ya png)"
+    )
+    
+    # Sosial şəbəkə linkləri - optional
+    facebook_url: Optional[HttpUrl] = Field(None, description="Facebook linki")
+    instagram_url: Optional[HttpUrl] = Field(None, description="Instagram linki")
+    tiktok_url: Optional[HttpUrl] = Field(None, description="TikTok linki")
+    linkedin_url: Optional[HttpUrl] = Field(None, description="LinkedIn linki")
+    
+    # Gördüyü işlər - optional şəkillər, max 10, hər biri jpg/png
+    portfolio_images: Optional[List[str]] = Field(
+        default_factory=list,
+        description="Nümunə işlərin şəkilləri (max 10 ədəd, jpg/png)"
+    )
+    
+    # Qeyd sahəsi - optional, max 1500 simvol
+    note: Optional[str] = Field(
+        None, max_length=1500,
+        description="Əlavə qeyd sahəsi (max 1500 simvol)"
+    )
+
+    # --- VALIDATORS ---
+
+    @validator('education')
+    def validate_education(cls, v):
+        allowed = {
+            "Tam ali", "Natamam ali", "Orta",
+            "Peşə təhsili", "Orta ixtisas təhsili", "Yoxdur"
+        }
+        if v not in allowed:
+            raise ValueError("Seçimlərdən biri olmalıdır.")
+        return v
+
+    @validator('education_major', always=True)
+    def validate_education_major(cls, v, values):
+        education = values.get('education')
+        if education != 'Yoxdur':
+            if not v:
+                raise ValueError("Təhsil ixtisası daxil edilməlidir.")
+            if not re.fullmatch(r"[A-Za-zƏəÖöÜüĞğŞşÇçİı\s\-]+", v):
+                raise ValueError("Yalnız Azərbaycan hərfləri ilə yazılmalıdır.")
+        return v
+
+    @validator('languages')
+    def validate_languages(cls, v):
+        allowed = {"Azərbaycan", "Rus", "İngilis", "Türk"}
+        if not v:
+            raise ValueError("Ən azı bir dil seçilməlidir.")
+        for lang in v:
+            if lang not in allowed:
+                raise ValueError(f"İcazə verilməyən dil: {lang}")
+        return v
+
+    @validator('profile_photo_filename')
+    def validate_profile_photo(cls, v):
+        if v:
+            _, ext = os.path.splitext(v.lower())
+            if ext not in ALLOWED_IMAGE_EXTENSIONS:
+                raise ValueError("Şəkil formatı yalnız jpg və png ola bilər.")
+        return v
+
+    @validator('portfolio_images')
+    def validate_portfolio_images(cls, v):
+        if v:
+            if len(v) > 10:
+                raise ValueError("Ən çox 10 şəkil yükləyə bilərsiniz.")
+            for filename in v:
+                _, ext = os.path.splitext(filename.lower())
+                if ext not in ALLOWED_IMAGE_EXTENSIONS:
+                    raise ValueError(f"{filename} - icazəsiz format (yalnız jpg və png).")
+        return v
