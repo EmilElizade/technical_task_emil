@@ -5,21 +5,23 @@ from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ValidationError
 import re
 
+# ---------------------------------------
+#      Validators
+# ---------------------------------------
 
-# ------------------- Validator-lar -------------------
-# Yalnız Azərbaycan əlifbasına uyğun hərflərə icazə verir
+# 1) Azərbaycan əlifbasındakı hərflər üçün validator
 azerbaijani_letters_validator = RegexValidator(
     regex=r'^[A-Za-zƏəÖöĞğÜüÇçŞşİı]+$',
     message='Yalnız Azərbaycan əlifbasındakı hərflərə icazə verilir.'
 )
 
-# Mobil nömrə: 9 rəqəm (məs: 501234567)
+# 2) Mobil nömrə validatoru: yalnız 9 rəqəm (məs: 501234567)
 mobile_number_validator = RegexValidator(
     regex=r'^\d{9}$',
     message='Mobil nömrə düzgün daxil edilməyib. 50 123 45 67 formatında daxil edin.'
 )
 
-# Şifrə gücü üçün yoxlama (8–15 simvol, böyük hərf, rəqəm və simvol)
+# 3) Şifrə gücü üçün validator (8–15 simvol, ən az 1 böyük hərf, 1 rəqəm, 1 xüsusi simvol)
 def validate_password_strength(password):
     if not (8 <= len(password) <= 15):
         raise ValidationError('Şifrə 8-15 simvol arasında olmalıdır.')
@@ -30,14 +32,19 @@ def validate_password_strength(password):
     if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
         raise ValidationError('Şifrədə ən azı bir simvol (!@#$... və s.) olmalıdır.')
 
-# ------------------- İstifadəçi Meneceri -------------------
-# Özəl istifadəçi yaratma və superuser yaratmaq üçün CustomUserManager
+# ---------------------------------------
+#      Custom User Manager
+# ---------------------------------------
 class CustomUserManager(BaseUserManager):
+    """
+    CustomUser üçün yaradan menecer.
+    Şifrə gücünü yoxlayır və mobil nömrə mütləq olmalıdır.
+    """
     def create_user(self, mobile_number, password=None, **extra_fields):
         if not mobile_number:
             raise ValueError('Mobil nömrə daxil edilməlidir.')
         if password:
-            validate_password_strength(password)  # Şifrə gücü yoxlanılır
+            validate_password_strength(password)
         user = self.model(mobile_number=mobile_number, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
@@ -48,31 +55,16 @@ class CustomUserManager(BaseUserManager):
         extra_fields.setdefault('is_superuser', True)
         return self.create_user(mobile_number, password, **extra_fields)
 
-# ------------------- Page 2 Üçün Əlavə Modellər -------------------
-# Peşə sahələri üçün model (məs: Həkim, Müəllim və s.)
-class ProfessionalField(models.Model):
-    name = models.CharField(max_length=100, unique=True, verbose_name="Peşə Sahəsi")
-
-    def __str__(self):
-        return self.name
-
-# Peşə kvalifikasiyaları üçün model (məs: Bakalavr, Magistr və s.)
-class ProfessionalQualification(models.Model):
-    title = models.CharField(max_length=100, unique=True, verbose_name="Peşə Kvalifikasiyası")
-
-    def __str__(self):
-        return self.title
-
-# Region/Bölgə məlumatları üçün model (məs: Bakı, Gəncə və s.)
-class Region(models.Model):
-    name = models.CharField(max_length=100, unique=True, verbose_name="Fəaliyyət bölgəsi")
-
-    def __str__(self):
-        return self.name
-
-# ------------------- Əsas İstifadəçi Modeli -------------------
+# ---------------------------------------
+#      Page 1: CustomUser Model
+# ---------------------------------------
 class CustomUser(AbstractBaseUser, PermissionsMixin):
-    # Şəxsi məlumatlar (Page 1)
+    """
+    Peşə sahibi qeydiyyatının 1-ci səhifəsində
+    (Şəxsi Məlumatlar) toplanan əsas istifadəçi məlumatları:
+      - Ad, Soyad, Doğum tarixi, Mobil nömrə, Şifrə, Cins
+    Bunlar CustomUser modelində saxlanılır.
+    """
     first_name = models.CharField(
         max_length=20,
         validators=[azerbaijani_letters_validator],
@@ -94,8 +86,8 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         verbose_name="Mobil nömrə"
     )
     GENDER_CHOICES = [
+        ('Q', 'Qadın'),
         ('K', 'Kişi'),
-        ('Q', 'Qadın')
     ]
     gender = models.CharField(
         max_length=1,
@@ -103,39 +95,15 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         verbose_name="Cins"
     )
 
-    # Peşə məlumatları (Page 2)
-    professional_field = models.ForeignKey(
-        ProfessionalField,
-        on_delete=models.SET_NULL,
-        null=True,
-        verbose_name="Peşə Sahəsi"
-    )
-    professional_qualification = models.ForeignKey(
-        ProfessionalQualification,
-        on_delete=models.SET_NULL,
-        null=True,
-        verbose_name="Peşə Kvalifikasiyası"
-    )
-    work_experience = models.PositiveIntegerField(
-        validators=[MinValueValidator(0)],
-        verbose_name="İş təcrübəsi (il olaraq)"
-    )
-    areas_of_operation = models.ManyToManyField(
-        Region,
-        verbose_name="Fəaliyyət bölgələri",
-        blank=False  # boş qoymaq olmaz, mütləq seçilməlidir
-    )
-
-    # Texniki sahələr
+    # Texniki sahələr (login/permission üçün)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
 
     objects = CustomUserManager()
 
-    # Sistemdə login üçün istifadə ediləcək əsas sahə
+    # login üçün unikal sahə
     USERNAME_FIELD = 'mobile_number'
-    REQUIRED_FIELDS = ['first_name', 'last_name', 'birth_date', 'gender',
-                       'professional_field', 'professional_qualification', 'work_experience']
+    REQUIRED_FIELDS = ['first_name', 'last_name', 'birth_date', 'gender']
 
     def __str__(self):
         return f"{self.first_name} {self.last_name} - {self.mobile_number}"
@@ -143,3 +111,80 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     class Meta:
         verbose_name = "İstifadəçi"
         verbose_name_plural = "İstifadəçilər"
+
+# ---------------------------------------
+#      Page 2: Ayrılmış Modellər
+# ---------------------------------------
+
+class ProfessionalField(models.Model):
+    """
+    Peşə sahələrini saxlayan baza cədvəli.
+    Məs: 'Mühəndis', 'Dərzi', 'Elektrik' və s.
+    Page 2-də 'Peşə sahəsi' xanası üçün FK bu modelə istinad edəcək.
+    """
+    name = models.CharField(max_length=100, unique=True, verbose_name="Peşə Sahəsi")
+
+    def __str__(self):
+        return self.name
+
+
+class ProfessionalQualification(models.Model):
+    """
+    Peşəkar ixtisas/kvalifikasiyalar cədvəli.
+    Məs: 'Bakalavr', 'Magistr', 'Sertifikatlı' və s.
+    Page 2-də 'Peşə ixtisası' xanası üçün FK bu modelə istinad edəcək.
+    """
+    title = models.CharField(max_length=100, unique=True, verbose_name="Peşə Kvalifikasiyası")
+
+    def __str__(self):
+        return self.title
+
+
+class Region(models.Model):
+    """
+    Şəhər/Rayon cədvəli. 
+    Page 2-də 'Fəaliyyət göstərdiyi ərazi' xanası üçün M2M bu modelə bağlanacaq.
+    Məsələn: 'Bakı', 'Gəncə', 'Sumqayıt' və s.
+    """
+    name = models.CharField(max_length=100, unique=True, verbose_name="Fəaliyyət Bölgəsi")
+
+    def __str__(self):
+        return self.name
+
+
+class ProfessionalProfile(models.Model):
+    """
+    Ayrılmış peşəkar profil modeli – Page 2-də daxil olunan məlumatlar burada saxlanır.
+    1-to-1 olaraq CustomUser ilə əlaqələnir.
+    """
+    user = models.OneToOneField(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='professional_profile',
+        verbose_name="İstifadəçi"
+    )
+    profession = models.ForeignKey(
+        ProfessionalField,
+        on_delete=models.PROTECT,
+        verbose_name="Peşə Sahəsi"
+    )
+    qualification = models.ForeignKey(
+        ProfessionalQualification,
+        on_delete=models.PROTECT,
+        verbose_name="Peşə Kvalifikasiyası"
+    )
+    work_experience = models.PositiveIntegerField(
+        validators=[MinValueValidator(0)],
+        verbose_name="İş Təcrübəsi (il olaraq)"
+    )
+    areas = models.ManyToManyField(
+        Region,
+        verbose_name="Fəaliyyət Bölgələri"
+    )
+
+    def __str__(self):
+        return f"{self.user.first_name} {self.user.last_name} – {self.profession.name}"
+
+    class Meta:
+        verbose_name = "Peşəkar Profil"
+        verbose_name_plural = "Peşəkar Profillər"
